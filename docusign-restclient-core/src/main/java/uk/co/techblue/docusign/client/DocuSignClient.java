@@ -27,12 +27,15 @@ import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.params.ConnRoutePNames;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.impl.conn.tsccm.ThreadSafeClientConnManager;
+import org.apache.http.conn.ConnectionKeepAliveStrategy;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.params.HttpParams;
+import org.apache.http.protocol.HttpContext;
 import org.jboss.resteasy.client.ClientRequest;
 import org.jboss.resteasy.client.ClientResponse;
 import org.jboss.resteasy.client.ProxyFactory;
@@ -44,6 +47,7 @@ import org.jboss.resteasy.spi.ResteasyProviderFactory;
 import uk.co.techblue.docusign.client.credential.DocuSignCredentials;
 import uk.co.techblue.docusign.client.utils.DocuSignUtils;
 import uk.co.techblue.docusign.resteasy.providers.DocumentFileProvider;
+
 /**
  * The HTTP client can be configured adding in the classpath the following properties file:
  * DocuSignClient.properties
@@ -147,16 +151,16 @@ public class DocuSignClient {
 
 	private static class HttpClientConfiguration {
 		private ResourceBundle docusignClientBundle = null;
-		private HttpClientConfiguration () {
+		private HttpClientConfiguration() {
 			try {
 				docusignClientBundle = ResourceBundle.getBundle(DocuSignClient.class.getSimpleName());
 			}
 			catch(MissingResourceException mre) {
-                /* Ignore */
+		/* Ignore */
 			}
 
 		}
-		
+
 		private String getString(String key, String defaultValue) {
 			String value = defaultValue;
 			try {
@@ -165,9 +169,9 @@ public class DocuSignClient {
 				}
 			}
 			catch(MissingResourceException mre) {
-				/* Ignore */
+		/* Ignore */
 			}
-			
+
 			return value;
 		}
 
@@ -179,7 +183,7 @@ public class DocuSignClient {
 					value = Integer.parseInt(valueString);
 				}
 			}
-			catch(MissingResourceException mre) {
+			catch (MissingResourceException mre) {
 				/* Ignore */
 			}
 			catch (NumberFormatException nfe) {
@@ -188,10 +192,10 @@ public class DocuSignClient {
 					logger.debug(nfe.getMessage());
 				}
 			}
-			
+
 			return value;
 		}
-		
+
 		private int getDefaultMaxPerRoute() {
 			return getInteger(CONNECTION_DEFAULT_MAX_PER_ROUTE, 50);
 		}
@@ -203,7 +207,7 @@ public class DocuSignClient {
 		private int getProxyPort() {
 			return getInteger(PROXY_PORT_PROPERTY, 0);
 		}
-	
+
 		private String getProxyHost() {
 			return getString(PROXY_HOST_PROPERTY, null);
 		}
@@ -212,25 +216,34 @@ public class DocuSignClient {
 			return getString(CONNECTION_URL, null);
 		}
 	}
-	
+
 	private static HttpClient getHttpClient() {
 		if (client == null) {
 			synchronized (DocuSignClient.class) {
 				if (client == null) {
-					ThreadSafeClientConnManager cm = new ThreadSafeClientConnManager();
-					
+					PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+
 					int maxPerRoute = httpClientConfiguration.getDefaultMaxPerRoute();
 					cm.setDefaultMaxPerRoute(maxPerRoute);
 					cm.setMaxTotal(maxPerRoute);
-					client = new DefaultHttpClient(cm);
+
+					ConnectionKeepAliveStrategy keepAliveStrategy = new ConnectionKeepAliveStrategy() {
+						@Override
+						public long getKeepAliveDuration(HttpResponse response, HttpContext context) {
+							logger.debug("stay alive getKeepAliveDuration");
+							// 200[s]
+							return 200 * 1000l;
+						}
+					};
 
 					int timeout = httpClientConfiguration.getTimeout();
 					String proxyHost = httpClientConfiguration.getProxyHost();
-					HttpParams params = client.getParams();
-					// Allowable time between packets
-					HttpConnectionParams.setSoTimeout(params, timeout);
-					// Allowable time to get a connection
-					HttpConnectionParams.setConnectionTimeout(params, timeout);
+
+					RequestConfig requestConfig = RequestConfig.custom().setConnectTimeout(timeout)
+							.setSocketTimeout(timeout).build();
+
+					HttpClientBuilder httpClientBuilder = HttpClients.custom().setKeepAliveStrategy(keepAliveStrategy)
+							.setDefaultRequestConfig(requestConfig).setConnectionManager(cm);
 
 					// Configure proxy info if necessary and defined
 					if (proxyHost != null && !proxyHost.equals("")) {
@@ -238,15 +251,12 @@ public class DocuSignClient {
 						int port = httpClientConfiguration.getProxyPort();
 						HttpHost proxy = new HttpHost(proxyHost, port);
 
-						params.setParameter(ConnRoutePNames.DEFAULT_PROXY, proxy);
+						httpClientBuilder.setProxy(proxy);
 					}
-					
+
+					client = httpClientBuilder.build();
 				}
 			}
-		}
-
-		if (logger.isDebugEnabled()) {
-			logger.info("connections: " + ((ThreadSafeClientConnManager) client.getConnectionManager()).getConnectionsInPool());
 		}
 
 		return client;
@@ -299,7 +309,7 @@ public class DocuSignClient {
 				}
 			}
 		}
-		
+
 		return ProxyFactory.create(clazz, reqServerUri, executor);
 	}
 }
