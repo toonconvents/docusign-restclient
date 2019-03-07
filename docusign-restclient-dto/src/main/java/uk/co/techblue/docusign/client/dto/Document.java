@@ -35,12 +35,15 @@ public class Document extends BaseDto{
     @JsonProperty
     private String name;
 
+    @JsonProperty
+	private String transformPdfFields;
+
     @JsonIgnore
     private String path;
 
     @JsonIgnore
     private String data;
-    
+
    public String getDocumentId() {
         return documentId;
     }
@@ -57,7 +60,15 @@ public class Document extends BaseDto{
         this.name = name;
     }
 
-    @JsonIgnore
+	public String getTransformPdfFields() {
+		return transformPdfFields;
+	}
+
+	public void setTransformPdfFields(String transformPdfFields) {
+		this.transformPdfFields = transformPdfFields;
+	}
+
+	@JsonIgnore
     public String getPath() {
         return path;
     }
